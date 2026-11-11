@@ -412,8 +412,13 @@ class Checker:
                     err_at(d, "'%s' is reserved" % d.name)
                 self.enums[d.name] = T.EnumT(d.name, d)
             elif isinstance(d, A.CInclude):
-                if d.header not in self.includes:
-                    self.includes.append(d.header)
+                header = d.header
+                if header.startswith(("./", "../")) and d.file:
+                    # local headers resolve relative to the .fl file that includes them
+                    import os
+                    header = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(d.file)), header))
+                if header not in self.includes:
+                    self.includes.append(header)
             elif isinstance(d, A.Link):
                 if d.lib not in self.links:
                     self.links.append(d.lib)
@@ -1019,6 +1024,8 @@ class Checker:
             or (src.is_ptr() and target.key in ("i64", "u64"))
             or (src.is_int() and target.is_ptr())
             or (src == T.BOOL and target.is_int())
+            or (isinstance(src, T.Slice) and src.elem.key in ("char", "u8", "i8") and target == T.STR)
+            or (src == T.STR and isinstance(target, T.Slice) and target.elem.key in ("char", "u8", "i8"))
         )
         if not ok:
             err_at(e, "cannot cast %s to %s" % (src, target))

@@ -93,5 +93,9 @@ fn main(args: []str) -> i32 {
     println(parse_int("  123 ") + 1, parse_float("2.5") * 2.0, parse_int("0x10"))
     let p: *i32 = null
     println(p == null, p)
+    var bytes: [3]char = ['h', 'i', '!']
+    let as_text = bytes[..] as str
+    let raw = "xyz" as []u8
+    println(as_text, as_text.len, raw)
     return 3
 }

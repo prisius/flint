@@ -271,6 +271,35 @@ import "utils"          // utils.fl next to this file
 Imports are flat: every declaration from the imported file becomes visible. Each
 file is loaded only once, even if several files import it.
 
+Standard library modules:
+
+| Module | Contents |
+|---|---|
+| `std/math` | `sqrt`, `pow`, `sin`, `cos`, `floor` and the rest of `math.h`; `PI`, `E`, `TAU`; `min_`/`max_`/`clamp_` helpers |
+| `std/rand` | `Rng.new(seed)`, `.next()`, `.range(lo, hi)`, `.float()` (xorshift64*) |
+| `std/net` | TCP: `TcpListener.bind(port)`, `.accept()`; `TcpConn.read(buf) -> str`, `.write(s)`, `.close()` |
+
+A tiny TCP echo server:
+
+```flint
+import "std/net"
+
+fn main() {
+    let server = TcpListener.bind(9000)
+    while true {
+        var conn = server.accept()
+        var buf: [4096]char
+        let msg = conn.read(buf)        // a str view into buf
+        conn.write(msg)
+        conn.close()
+    }
+}
+```
+
+For a complete example (routing, query strings, JSON, status codes, `defer`
+cleanup) see `examples/http_server.fl`: `./flint run examples/http_server.fl`, then
+open http://localhost:8080.
+
 ---
 
 ## 4. Reference
@@ -302,7 +331,9 @@ numeric type its context expects. Without context it is `i64`, and a float liter
 `let n = f as i32`. In arithmetic, the operands are widened to the larger type.
 
 **Casts (`as`):** between numbers, between enums and integers, between pointers,
-between pointers and `i64`/`u64`, and from bool to an integer.
+between pointers and `i64`/`u64`, from bool to an integer, and between `str` and
+`[]char`/`[]u8`/`[]i8` (a zero-copy view of the same bytes; useful for I/O buffers:
+`let text = buf[..n] as str`).
 
 ### Operators (lowest to highest precedence)
 
@@ -437,6 +468,9 @@ fn main() {
 - `extern fn` names are used exactly as written. Your own Flint functions are emitted
   as `fl_<name>`, so they never clash with libc.
 - `std/math.fl` already binds most of `math.h`: `import "std/math"`.
+- A local header path in `cinclude "./x.h"` is resolved relative to the `.fl` file.
+  When a C library's structs differ between platforms, put a few small `static` C
+  functions in a header next to your code (see `std/net.h`).
 
 ---
 
@@ -541,8 +575,8 @@ compiler/
   formatter.py        `flint fmt` (whitespace-only, safe)
   lsp.py              `flint lsp` language server (JSON-RPC over stdio)
   errors.py           CompileError
-std/                  standard library written in Flint (math, rand)
-examples/             example programs
+std/                  standard library: math, rand, net (TCP: net.fl + net.h C shim)
+examples/             hello, fizzbuzz, life, stack (RPN), wordcount, http_server
 tests/
   run.py              test runner
   *.fl + *.expected   output tests

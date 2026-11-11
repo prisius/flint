@@ -599,6 +599,12 @@ class CGen:
         if isinstance(e, A.Cast):
             if e.ty == e.expr.ty:
                 return self.expr(e.expr)
+            src = e.expr.ty
+            if (src == T.STR) != (e.ty == T.STR) and (isinstance(src, T.Slice) or isinstance(e.ty, T.Slice)):
+                # []char/[]u8 <-> str: same {ptr, len} layout, no copy
+                t = self.tmp()
+                elem_c = "char" if e.ty == T.STR else e.ty.elem.c
+                return "({ %s %s = %s; (%s){(%s*)%s.ptr, %s.len}; })" % (src.c, t, self.expr(e.expr), e.ty.c, elem_c, t, t)
             return "((%s)(%s))" % (e.ty.c, self.expr(e.expr))
         if isinstance(e, A.Field):
             return self.gen_field(e)

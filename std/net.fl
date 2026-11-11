@@ -1,0 +1,70 @@
+// std/net: TCP sockets.
+// Usage: import "std/net"
+//   let server = TcpListener.bind(8080)
+//   while true {
+//       var conn = server.accept()
+//       defer conn.close()
+//       ...
+//   }
+cinclude "./net.h"
+
+extern fn net_listen(port: i32) -> i32
+extern fn net_accept(fd: i32) -> i32
+extern fn net_read(fd: i32, buf: *char, cap: i64) -> i64
+extern fn net_write(fd: i32, data: *char, len: i64) -> i64
+extern fn net_close(fd: i32)
+
+struct TcpListener {
+    fd: i32
+}
+
+struct TcpConn {
+    fd: i32
+}
+
+impl TcpListener {
+    // Listen on all interfaces. Panics if the port is unavailable.
+    fn bind(port: i32) -> TcpListener {
+        let fd = net_listen(port)
+        if fd < 0 {
+            panic("cannot listen on port {port} (already in use?)")
+        }
+        return TcpListener { fd: fd }
+    }
+
+    // Block until a client connects.
+    fn accept(self) -> TcpConn {
+        return TcpConn { fd: net_accept(self.fd) }
+    }
+
+    fn close(self) {
+        net_close(self.fd)
+    }
+}
+
+impl TcpConn {
+    fn ok(self) -> bool {
+        return self.fd >= 0
+    }
+
+    // Read into buf; returns the received bytes as a str view into buf ("" on close/error).
+    fn read(self, buf: []char) -> str {
+        let n = net_read(self.fd, buf.ptr, buf.len)
+        if n <= 0 {
+            return ""
+        }
+        return buf[..n] as str
+    }
+
+    // Send the whole string. Returns false if the client went away.
+    fn write(self, data: str) -> bool {
+        return net_write(self.fd, data.ptr, data.len) == data.len
+    }
+
+    fn close(self) {
+        if self.fd >= 0 {
+            net_close(self.fd)
+            self.fd = -1
+        }
+    }
+}
