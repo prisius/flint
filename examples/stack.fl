@@ -1,0 +1,28 @@
+// A generic-free stack-based calculator (reverse polish notation) using list[f64].
+fn eval_rpn(src: str) -> f64 {
+    var stack: list[f64]
+    defer free(stack)
+    for tok in src.split(" ") {
+        match tok {
+            "+", "-", "*", "/" => {
+                let b = stack.pop()
+                let a = stack.pop()
+                match tok {
+                    "+" => stack.push(a + b)
+                    "-" => stack.push(a - b)
+                    "*" => stack.push(a * b)
+                    _ => stack.push(a / b)
+                }
+            }
+            _ => stack.push(parse_float(tok))
+        }
+    }
+    return stack.pop()
+}
+
+fn main() {
+    let exprs = ["3 4 +", "5 1 2 + 4 * + 3 -", "2 3 4 * +", "10 4 /"]
+    for e in exprs {
+        println("{e:-20} = {eval_rpn(e)}")
+    }
+}

@@ -1,0 +1,5 @@
+// expect-error: strings are immutable
+fn main() {
+    var s = "abc"
+    s[0] = 120
+}

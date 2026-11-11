@@ -1,0 +1,5 @@
+// expect-error: condition must be bool
+fn main() {
+    let x = 1
+    if x { }
+}

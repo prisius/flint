@@ -1,0 +1,34 @@
+// std/rand: fast deterministic pseudo-random numbers (xorshift64*).
+// Usage: import "std/rand"
+//   var rng = Rng.new(42)
+//   let n = rng.range(1, 7)     // 1..6
+//   let f = rng.float()         // [0, 1)
+
+struct Rng {
+    state: u64
+}
+
+impl Rng {
+    fn new(seed: u64) -> Rng {
+        var s = seed
+        if s == 0 { s = 0x9E3779B97F4A7C15 }
+        return Rng { state: s }
+    }
+    fn next(self) -> u64 {
+        var x = self.state
+        x ^= x >> 12
+        x ^= x << 25
+        x ^= x >> 27
+        self.state = x
+        return x * 0x2545F4914F6CDD1D
+    }
+    // integer in [lo, hi)
+    fn range(self, lo: i64, hi: i64) -> i64 {
+        let span = (hi - lo) as u64
+        return lo + (self.next() % span) as i64
+    }
+    // float in [0, 1)
+    fn float(self) -> f64 {
+        return (self.next() >> 11) as f64 / 9007199254740992.0
+    }
+}

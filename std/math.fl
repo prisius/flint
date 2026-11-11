@@ -1,0 +1,37 @@
+// std/math: C math library bindings plus small helpers.
+// Usage: import "std/math"
+cinclude "math.h"
+
+extern fn sqrt(x: f64) -> f64
+extern fn cbrt(x: f64) -> f64
+extern fn pow(x: f64, y: f64) -> f64
+extern fn exp(x: f64) -> f64
+extern fn log(x: f64) -> f64
+extern fn log2(x: f64) -> f64
+extern fn log10(x: f64) -> f64
+extern fn sin(x: f64) -> f64
+extern fn cos(x: f64) -> f64
+extern fn tan(x: f64) -> f64
+extern fn asin(x: f64) -> f64
+extern fn acos(x: f64) -> f64
+extern fn atan(x: f64) -> f64
+extern fn atan2(y: f64, x: f64) -> f64
+extern fn floor(x: f64) -> f64
+extern fn ceil(x: f64) -> f64
+extern fn round(x: f64) -> f64
+extern fn trunc(x: f64) -> f64
+extern fn fabs(x: f64) -> f64
+extern fn fmod(x: f64, y: f64) -> f64
+extern fn hypot(x: f64, y: f64) -> f64
+
+const PI = 3.141592653589793
+const E = 2.718281828459045
+const TAU = 6.283185307179586
+
+fn min_i64(a: i64, b: i64) -> i64 { if a < b { return a } return b }
+fn max_i64(a: i64, b: i64) -> i64 { if a > b { return a } return b }
+fn abs_i64(a: i64) -> i64 { if a < 0 { return -a } return a }
+fn min_f64(a: f64, b: f64) -> f64 { if a < b { return a } return b }
+fn max_f64(a: f64, b: f64) -> f64 { if a > b { return a } return b }
+fn clamp_f64(x: f64, lo: f64, hi: f64) -> f64 { return min_f64(max_f64(x, lo), hi) }
+fn clamp_i64(x: i64, lo: i64, hi: i64) -> i64 { return min_i64(max_i64(x, lo), hi) }

@@ -1,0 +1,38 @@
+10 2 1 1099511627776 255 5
+3.14159 3.0 2.5 0.30000000000000004
+250 -5 x true true hi
+10 true 3.5
+12 H Flint Hello 7 true
+Hello, Flint! true true
+pi ~ 3.14 | hex ff | pad [   42] [42   ] [007] bin 101
+["a", "b", "", "c"] 4
+trim me [    ab]
+Vec2 { x: 3.0, y: 4.0 } 5.0
+6.0 8.0
+Vec2 { x: 7.0, y: 9.0 }
+100.0 true
+10.0
+Blue Red 10 green other
+[10, 2, 3, 4, 5] 5 24
+[2, 3, 4] 9
+[[0, 0, 0], [0, 5, 0], [0, 0, 0]]
+0:5 1:4 2:3 3:2 4:1 
+[0, 1, 4, 9, 16, 25, 36, 49, 64, 81] 10 285
+81 [-1, 1, 4, 9, 16, 25, 36, 49, 64]
+["ann", "bob"]
+0
+[0, 0, 0, 9]
+2 1 
+i is four
+friend
+6765 1 2 2
+  loop body 0
+  loop defer 0
+  loop defer 1
+  loop body 2
+  loop defer 2
+deferred 2
+deferred 1
+42
+16 4
+2

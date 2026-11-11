@@ -1,0 +1,20 @@
+true
+1.4142135623730951 3.141592653589793 2.0 9 42
+true
+7.5 ["red"] 2
+apple     |   3
+big pear  |  15
+Item { name: "apple", qty: 3, tags: ["red"] }
+Tagged { kind: B, pos: [0.0, 1.5] }
+(greeting built)
+hello ada, 3 chars
+consonant vowel space digit digit 
+0 255
+5
+1
+1.1 2.2 0.3333333333333333
+18446744073709551615 -9223372036854775808
+true 0
+xyz abc 3
+124 5.0 16
+true null

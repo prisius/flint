@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.DS_Store
+tests/.example.bin
+*.c.tmp
+/a.out

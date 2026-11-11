@@ -1,0 +1,42 @@
+// Sieve of Eratosthenes + recursive fib + n-body-ish float loop
+fn sieve(n: i64) -> i64 {
+    var is_comp = make([]bool, n + 1)
+    defer free(is_comp)
+    var count: i64 = 0
+    for i in 2..n + 1 {
+        if !is_comp[i] {
+            count += 1
+            var j = i * i
+            while j <= n {
+                is_comp[j] = true
+                j += i
+            }
+        }
+    }
+    return count
+}
+
+fn fib(n: i32) -> i32 {
+    if n < 2 { return n }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fn floats(n: i64) -> f64 {
+    var x = 0.0
+    var v = 1.0
+    for i in 0..n {
+        v -= x * 0.001
+        x += v * 0.001
+    }
+    return x
+}
+
+fn main() {
+    let t0 = time_ns()
+    let primes = sieve(50_000_000)
+    let f = fib(38)
+    let x = floats(300_000_000)
+    let ms = (time_ns() - t0) / 1_000_000
+    println("primes={primes} fib={f} x={x:.6}")
+    eprintln("flint: {ms} ms")
+}

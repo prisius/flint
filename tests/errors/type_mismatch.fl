@@ -1,0 +1,4 @@
+// expect-error: expected str, got i64
+fn main() {
+    let s: str = 5
+}

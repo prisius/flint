@@ -1,0 +1,189 @@
+// Exercises most language features. Expected output in features.expected
+const N = 5
+const PI = 3.14159
+const GREETING = "hi"
+
+struct Vec2 {
+    x: f64
+    y: f64
+}
+
+impl Vec2 {
+    fn new(x: f64, y: f64) -> Vec2 {
+        return Vec2 { x: x, y: y }
+    }
+    fn len(self) -> f64 {
+        return sqrt(self.x * self.x + self.y * self.y)
+    }
+    fn scale(self, k: f64) {
+        self.x *= k
+        self.y *= k
+    }
+    fn add(self, o: Vec2) -> Vec2 {
+        return Vec2 { x: self.x + o.x, y: self.y + o.y }
+    }
+}
+
+enum Color { Red, Green, Blue = 10 }
+
+struct Node {
+    value: i32
+    next: *Node
+}
+
+var counter = 0
+
+cinclude "math.h"
+extern fn sqrt(x: f64) -> f64
+
+fn fib(n: i64) -> i64 {
+    if n < 2 { return n }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fn sum(xs: []i32) -> i64 {
+    var total: i64 = 0
+    for x in xs {
+        total += x
+    }
+    return total
+}
+
+fn bump() -> i32 {
+    counter += 1
+    return counter as i32
+}
+
+fn describe(c: Color) -> str {
+    match c {
+        Color.Red => return "red"
+        Color.Green => return "green"
+        _ => return "other"
+    }
+}
+
+fn with_defer() -> i32 {
+    defer println("deferred 1")
+    defer println("deferred 2")
+    for i in 0..3 {
+        defer println("  loop defer {i}")
+        if i == 1 { continue }
+        println("  loop body {i}")
+    }
+    return 42
+}
+
+fn main() {
+    // literals and arithmetic
+    let a = 7
+    let b: i32 = 3
+    println(a + b, a / b, a % b, 1 << 40, 0xff, 0b101)
+    println(PI, 1.5 * 2.0, 10.0 / 4.0, 0.1 + 0.2)
+    let small: u8 = 250
+    println(small, -5, 'x', true, !false, GREETING)
+    println(N * 2, 7 & 3 == 3, (a as f64) / 2.0)
+
+    // strings
+    let s = "Hello, Flint"
+    println(s.len, s[0], s[7..], s[..5], s.find("Flint"), s.contains("lin"))
+    let t = s + "!"
+    println(t, t == "Hello, Flint!", "abc" < "abd")
+    let pi_s = "pi ~ {PI:.2} | hex {255:x} | pad [{42:5}] [{42:-5}] [{7:03}] bin {5:b}"
+    println(pi_s)
+    let parts = "a,b,,c".split(",")
+    println(parts, parts.len)
+    let ab = "ab"
+    println("  trim me  ".trim(), "[{ab:6}]")
+
+    // structs and methods
+    var v = Vec2.new(3.0, 4.0)
+    println(v, v.len())
+    v.scale(2.0)
+    println(v.x, v.y)
+    let w = v.add(Vec2 { x: 1.0, y: 1.0 })
+    println(w)
+    let p = &v
+    p.x = 100.0
+    println(v.x, p.len() > 100.0)
+    println(Vec2.new(6.0, 8.0).len())
+
+    // enums and match
+    let c = Color.Blue
+    println(c, Color.Red, c as i32, describe(Color.Green), describe(c))
+
+    // arrays, slices
+    var arr: [5]i32 = [1, 2, 3, 4, 5]
+    arr[0] = 10
+    println(arr, arr.len, sum(arr))
+    let sl = arr[1..4]
+    println(sl, sum(sl))
+    var grid: [3][3]i32
+    grid[1][1] = 5
+    println(grid)
+    let nums: [N]i32 = [5, 4, 3, 2, 1]
+    for i, x in nums {
+        print("{i}:{x} ")
+    }
+    println()
+
+    // lists
+    var xs: list[i64]
+    for i in 0..10 { xs.push(i * i) }
+    println(xs, xs.len, sum2(xs))
+    let last = xs.pop()
+    xs.remove(0)
+    xs.insert(0, -1)
+    println(last, xs)
+    var names: list[str]
+    names.push("ann")
+    names.push("bob")
+    println(names)
+    free(xs)
+    println(xs.len)
+
+    // heap
+    let dyn = make([]i32, 4)
+    dyn[3] = 9
+    println(dyn)
+    free(dyn)
+    let n1 = new(Node, Node { value: 1, next: null })
+    let n2 = new(Node)
+    n2.value = 2
+    n2.next = n1
+    var cur = n2
+    while cur != null {
+        print(cur.value, "")
+        cur = cur.next
+    }
+    println()
+
+    // control flow
+    var i = 0
+    while true {
+        i += 1
+        if i > 3 { break }
+    }
+    if i == 4 {
+        println("i is four")
+    } else if i == 5 {
+        println("five")
+    } else {
+        println("other")
+    }
+    match "bob" {
+        "ann", "bob" => println("friend")
+        _ => println("stranger")
+    }
+    println(fib(20), bump(), bump(), counter)
+    println(with_defer())
+    println(sizeof(Vec2), sizeof(i32))
+    var shadow = 1
+    let shadow = shadow + 1
+    println(shadow)
+}
+
+fn sum2(xs: []i64) -> i64 {
+    var t: i64 = 0
+    for x in xs { t += x }
+    return t
+}

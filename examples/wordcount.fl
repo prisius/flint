@@ -1,0 +1,24 @@
+// Count words and the longest word from stdin:
+//   echo "the quick brown fox" | ./flint run examples/wordcount.fl
+struct Stats {
+    lines: i64
+    words: i64
+    longest: str
+}
+
+fn main() {
+    var st = Stats { longest: "" }
+    while true {
+        let line = read_line()
+        if line.ptr == null { break }   // end of input
+        st.lines += 1
+        for w in line.split(" ") {
+            let word = w.trim()
+            if word.len == 0 { continue }
+            st.words += 1
+            if word.len > st.longest.len { st.longest = word }
+        }
+    }
+    println(st)
+    println("{st.words} words on {st.lines} lines, longest is '{st.longest}'")
+}

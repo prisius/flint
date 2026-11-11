@@ -1,0 +1,4 @@
+// expect-error: use `as i32` to truncate
+fn main() {
+    let x: i32 = 2.5
+}

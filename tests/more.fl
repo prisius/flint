@@ -1,0 +1,97 @@
+// exit: 3
+import "std/math"
+import "std/rand"
+import "lib/helper"
+
+struct Item {
+    name: str
+    qty: i32
+    tags: list[str]
+}
+
+enum Kind { A, B }
+
+struct Tagged { kind: Kind, pos: [2]f32 }
+
+var items: list[Item]
+let LIMIT: u8 = 255
+
+impl Item {
+    fn total(self, price: f64) -> f64 { return self.qty as f64 * price }
+    fn rename(self, n: str) { self.name = n }
+}
+
+fn make_greeting(name: str) -> str {
+    defer println("(greeting built)")
+    return "hello {name}, {name.len} chars"
+}
+
+fn classify(c: char) -> str {
+    match c {
+        'a', 'e', 'i', 'o', 'u' => return "vowel"
+        ' ' => return "space"
+        _ => {
+            if c >= '0' && c <= '9' { return "digit" }
+            return "consonant"
+        }
+    }
+}
+
+fn main(args: []str) -> i32 {
+    println(args.len >= 1)
+    println(sqrt(2.0), PI, floor(2.7), max_i64(3, 9), helper_double(21))
+
+    var rng = Rng.new(7)
+    var hits = 0
+    for i in 0..1000 {
+        let r = rng.range(0, 10)
+        assert(r >= 0 && r < 10, "range out of bounds")
+        if r == 3 { hits += 1 }
+    }
+    println(hits > 50 && hits < 150)
+
+    items.push(Item { name: "apple", qty: 3 })
+    items.push(Item { name: "pear", qty: 5 })
+    items[0].tags.push("red")
+    items[1].qty += 10
+    items[1].rename("big pear")
+    println(items[1].total(0.5), items[0].tags, items.len)
+    for it in items { println("{it.name:-10}|{it.qty:4}") }
+    println(items[0])
+
+    var t = Tagged { kind: Kind.B }
+    t.pos[1] = 1.5
+    println(t)
+
+    println(make_greeting("ada"))
+    for c in "hi 42" { print(classify(c), "") }
+    println()
+
+    var u: u8 = LIMIT
+    u += 1
+    println(u, LIMIT)
+
+    var x = 1
+    {
+        let x = 5
+        println(x)
+    }
+    println(x)
+
+    let f: f32 = 1.1
+    println(f, f * 2.0, 1.0 / 3.0)
+    let big: u64 = 18446744073709551615
+    println(big, -9223372036854775807 - 1)
+
+    var nums: list[i32]
+    nums.reserve(100)
+    println(nums.cap >= 100, nums.len)
+    let joined = "x" + "y" + "z"
+    var acc = ""
+    for w in "a b c".split(" ") { acc += w }
+    println(joined, acc, acc.len)
+    println(parse_int("  123 ") + 1, parse_float("2.5") * 2.0, parse_int("0x10"))
+    let p: *i32 = null
+    println(p == null, p)
+    return 3
+}

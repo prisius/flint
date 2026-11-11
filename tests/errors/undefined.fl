@@ -1,0 +1,4 @@
+// expect-error: undefined name 'nope'
+fn main() {
+    println(nope)
+}
