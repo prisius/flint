@@ -30,6 +30,7 @@ syn match flintBraceEsc "{{\|}}" contained
 syn region flintInterp matchgroup=flintInterpDelim start="{\ze[^{]" end="}" contained contains=flintNumber,flintFloat,flintBuiltin,flintFuncCall,flintTypeName,flintBoolean,flintSelf,flintFmtSpec
 syn match flintFmtSpec ":-\=0\=\d*\(\.\d\+\)\=[xXobe]\=\ze}" contained
 syn region flintString start=+"+ skip=+\\\\\|\\"+ end=+"+ oneline contains=flintEscape,flintBraceEsc,flintInterp
+syn region flintRawString start=+`+ end=+`+
 syn match flintChar "'\([^'\\]\|\\.\|\\x\x\x\)'" contains=flintEscape
 
 syn match flintOperator "=>\|->\|\.\.\|[-+*/%&|^!~<>=]=\=\|&&\|||\|<<=\=\|>>=\="
@@ -56,6 +57,7 @@ hi def link flintDiscard Comment
 hi def link flintNumber Number
 hi def link flintFloat Float
 hi def link flintString String
+hi def link flintRawString String
 hi def link flintChar Character
 hi def link flintEscape SpecialChar
 hi def link flintBraceEsc SpecialChar

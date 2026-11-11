@@ -1,0 +1,99 @@
+// std/json tests
+import "std/json"
+
+fn show(label: str, text: str) {
+    let v = json_parse(text)
+    defer json_free(v)
+    if v.ok() {
+        let out = json_stringify(v)
+        defer free(out)
+        println("{label:-10} ok    {out}")
+    } else {
+        println("{label:-10} error {v.error()}")
+    }
+}
+
+fn main() {
+    // --- access
+    let doc = json_parse(`{"name": "Ada", "age": 36, "admin": true, "tags": ["math", "code"], "boss": null, "pos": {"x": 1.5, "y": -2}}`)
+    defer json_free(doc)
+    assert(doc.ok())
+    println(doc.get("name").as_str(), doc.get("age").as_int(), doc.get("admin").as_bool())
+    println(doc.get("tags").len(), doc.get("tags").at(1).as_str(), doc.get("tags").at(9).is_null())
+    println(doc.get("pos").get("x").as_f64(), doc.get("pos").get("y").as_int(), doc.get("boss").is_null())
+    println(doc.has("boss"), doc.has("nope"), doc.get("nope").is_null(), doc.get("name").as_int())
+    for tag in doc.get("tags").items {
+        print(tag.as_str(), "")
+    }
+    println()
+    for i, key in doc.keys {
+        print("{key}={doc.items[i].kind} ")
+    }
+    println()
+
+    // --- valid inputs (round trip through stringify)
+    show("empty", `{}`)
+    show("arr", "[ ]")
+    show("nested", ` [[1, [2, [3]]], {"a": {"b": {}}}] `)
+    show("numbers", "[0, -0, 1e3, 2.5E-3, -12.75, 123456789012, 0.1]")
+    show("escapes", `"q\" b\\ s\/ n\n t\t"`)
+    show("unicode", `"caf\u00e9 \u20ac \ud83d\ude00"`)
+    show("raw utf8", `"naïve ✓"`)
+    show("estring", `""`)
+    show("literals", "[true, false, null]")
+
+    // --- invalid inputs
+    show("trailing", "[1, 2,]")
+    show("missing", `{"a" 1}`)
+    show("garbage", "[1] x")
+    show("badlit", "nul")
+    show("unterm", `"abc`)
+    show("badnum", "[01]")
+    show("badnum2", "1.")
+    show("badesc", `"\q"`)
+    show("surrogate", `"\ud83d"`)
+    show("ctrl", "\"a\tb\"")
+    show("key", `{1: 2}`)
+    show("empty", "")
+    show("multiline", `{
+  "a": 1,
+  "b": ?
+}`)
+    var deep: list[char]
+    for _ in 0..600 {
+        deep.push('[')
+    }
+    let deep_s: []char = deep
+    show("deep", deep_s as str)
+    free(deep)
+
+    // --- building
+    var o = json_object()
+    o.set("name", json_str("Grace \"Amazing\" Hopper\n"))
+    o.set("year", json_int(1906))
+    o.set("pi", json_num(3.14159))
+    o.set("year", json_int(1992))      // replace
+    var langs = json_array()
+    langs.push(json_str("COBOL"))
+    langs.push(json_str("FLOW-MATIC"))
+    langs.push(json_null())
+    o.set("langs", langs)
+    o.set("empty", json_array())
+    o.set("bell", json_str("\x07"))
+    o.set("big", json_num(1e300))
+    o.set("nan", json_num(0.0 / 0.0))
+    let compact = json_stringify(o)
+    println(compact)
+    let pretty = json_pretty(o, 2)
+    println(pretty)
+
+    // round trip
+    let back = json_parse(compact)
+    let again = json_stringify(back)
+    println(compact == again, back.get("name").as_str().len, back.get("langs").at(1).as_str())
+    free(compact)
+    free(pretty)
+    free(again)
+    json_free(back)
+    json_free(o)
+}

@@ -76,7 +76,7 @@ class Parser:
             return "end of file"
         if t.kind == "PUNCT" and t.value == ";":
             return "end of line"
-        return repr(t.value) if t.kind != "STRING" else "string"
+        return repr(t.value) if t.kind not in ("STRING", "RAWSTRING") else "string"
 
     def expect(self, value):
         if not self.at(value):
@@ -545,6 +545,9 @@ class Parser:
         if t.kind == "STRING":
             self.next()
             return self.parse_string(t)
+        if t.kind == "RAWSTRING":
+            self.next()
+            return A.StrLit(t, t.value.encode("utf-8"))
         if self.at("true") or self.at("false"):
             self.next()
             return A.BoolLit(t, t.value == "true")
@@ -655,7 +658,11 @@ class Parser:
                 inner = inner[:k]
         if not inner.strip():
             raise CompileError("empty {} in string (use '{{' for a literal brace)", t.file, t.line, t.col)
-        toks = lex(inner, t.file)
+        try:
+            toks = lex(inner, t.file)
+        except CompileError as e:
+            raise CompileError("in string interpolation {%s}: %s (write '{{' for a literal brace, "
+                               "or use a `raw string`)" % (inner.strip(), e.msg), t.file, t.line, t.col)
         for tk in toks:
             tk.line = t.line
             tk.col = t.col + offset + 1 + (tk.col - 1)

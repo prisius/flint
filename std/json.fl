@@ -1,0 +1,691 @@
+// std/json: JSON parsing, building and serialization, in pure Flint.
+//
+// Usage: import "std/json"
+//
+//   let doc = json_parse("{\"name\": \"Ada\", \"tags\": [\"math\", \"code\"], \"age\": 36}")
+//   defer json_free(doc)
+//   if !doc.ok() {
+//       println("bad json: {doc.error()}")
+//       return
+//   }
+//   let name = doc.get("name").as_str()       // "Ada"
+//   let age = doc.get("age").as_int()         // 36
+//   for tag in doc.get("tags").items {
+//       println(tag.as_str())
+//   }
+//
+//   var out = json_object()
+//   out.set("ok", json_bool(true))
+//   out.set("count", json_int(3))
+//   let text = json_stringify(out)            // {"ok":true,"count":3}
+//   defer free(text)
+//   json_free(out)
+//
+// Ownership: a value passed to push()/set() now belongs to its parent. Free only
+// the root, with json_free. Values returned by get()/at() are views into the
+// tree; do not free them separately. Strings are copied into the tree, so the
+// text you parsed can be freed right after json_parse.
+//
+// Numbers are stored as f64: integers are exact up to 2^53.
+
+enum JsonKind { Null, Bool, Number, String, Array, Object, Error }
+
+struct JsonValue {
+    kind: JsonKind
+    boolean: bool
+    number: f64
+    text: str               // String value, or the message of an Error
+    items: list[JsonValue]  // Array elements, or Object values
+    keys: list[str]         // Object keys (parallel to items)
+}
+
+// ------------------------------------------------------------------ constructors
+
+fn json_null() -> JsonValue {
+    return JsonValue { kind: JsonKind.Null }
+}
+
+fn json_bool(b: bool) -> JsonValue {
+    return JsonValue { kind: JsonKind.Bool, boolean: b }
+}
+
+fn json_num(n: f64) -> JsonValue {
+    return JsonValue { kind: JsonKind.Number, number: n }
+}
+
+fn json_int(n: i64) -> JsonValue {
+    return JsonValue { kind: JsonKind.Number, number: n as f64 }
+}
+
+// Copies s.
+fn json_str(s: str) -> JsonValue {
+    return JsonValue { kind: JsonKind.String, text: s.clone() }
+}
+
+fn json_array() -> JsonValue {
+    return JsonValue { kind: JsonKind.Array }
+}
+
+fn json_object() -> JsonValue {
+    return JsonValue { kind: JsonKind.Object }
+}
+
+// Frees a value and everything inside it.
+fn json_free(v: JsonValue) {
+    if v.kind == JsonKind.String || v.kind == JsonKind.Error {
+        free(v.text)
+    }
+    for item in v.items {
+        json_free(item)
+    }
+    for k in v.keys {
+        free(k)
+    }
+    free(v.items)
+    free(v.keys)
+}
+
+// ------------------------------------------------------------------ access
+
+impl JsonValue {
+    // false if this value is the result of a failed json_parse
+    fn ok(self) -> bool {
+        return self.kind != JsonKind.Error
+    }
+
+    // The parse error message ("" when ok).
+    fn error(self) -> str {
+        if self.kind == JsonKind.Error {
+            return self.text
+        }
+        return ""
+    }
+
+    fn is_null(self) -> bool {
+        return self.kind == JsonKind.Null
+    }
+
+    // Object field by key; null if missing or not an object.
+    fn get(self, key: str) -> JsonValue {
+        if self.kind == JsonKind.Object {
+            for i, k in self.keys {
+                if k == key {
+                    return self.items[i]
+                }
+            }
+        }
+        return json_null()
+    }
+
+    fn has(self, key: str) -> bool {
+        if self.kind == JsonKind.Object {
+            for k in self.keys {
+                if k == key {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    // Array element; null if out of range or not an array.
+    fn at(self, i: i64) -> JsonValue {
+        if self.kind == JsonKind.Array && i >= 0 && i < self.items.len {
+            return self.items[i]
+        }
+        return json_null()
+    }
+
+    // Number of elements (array), fields (object) or bytes (string); 0 otherwise.
+    fn len(self) -> i64 {
+        if self.kind == JsonKind.String {
+            return self.text.len
+        }
+        return self.items.len
+    }
+
+    // Typed getters return a default ("" / 0 / false) when the kind does not match.
+    fn as_str(self) -> str {
+        if self.kind == JsonKind.String {
+            return self.text
+        }
+        return ""
+    }
+
+    fn as_f64(self) -> f64 {
+        if self.kind == JsonKind.Number {
+            return self.number
+        }
+        return 0.0
+    }
+
+    fn as_int(self) -> i64 {
+        if self.kind == JsonKind.Number {
+            return self.number as i64
+        }
+        return 0
+    }
+
+    fn as_bool(self) -> bool {
+        return self.kind == JsonKind.Bool && self.boolean
+    }
+
+    // ---------------------------------------------------------------- building
+
+    // Append to an array (takes ownership of v).
+    fn push(self, v: JsonValue) {
+        if self.kind != JsonKind.Array {
+            panic("json: push() on a non-array value")
+        }
+        self.items.push(v)
+    }
+
+    // Set an object field, replacing an existing one (takes ownership of v).
+    fn set(self, key: str, v: JsonValue) {
+        if self.kind != JsonKind.Object {
+            panic("json: set() on a non-object value")
+        }
+        for i, k in self.keys {
+            if k == key {
+                json_free(self.items[i])
+                self.items[i] = v
+                return
+            }
+        }
+        self.keys.push(key.clone())
+        self.items.push(v)
+    }
+}
+
+// ------------------------------------------------------------------ parsing
+
+const JSON_MAX_DEPTH = 512
+
+struct JsonParser {
+    src: str
+    pos: i64
+    depth: i32
+    err: str
+}
+
+// Parse JSON text. Check .ok() on the result; on failure .error() describes
+// what went wrong and where. Always json_free the result.
+fn json_parse(text: str) -> JsonValue {
+    var p = JsonParser { src: text }
+    let v = p.value()
+    if p.err.len == 0 {
+        p.skip_ws()
+        if p.pos < p.src.len {
+            p.fail("unexpected data after the JSON value")
+        }
+    }
+    if p.err.len > 0 {
+        json_free(v)
+        return JsonValue { kind: JsonKind.Error, text: p.err }
+    }
+    return v
+}
+
+fn json_is_digit(c: char) -> bool {
+    return c >= '0' && c <= '9'
+}
+
+fn json_hex_val(c: char) -> i32 {
+    if c >= '0' && c <= '9' {
+        return (c - '0') as i32
+    }
+    if c >= 'a' && c <= 'f' {
+        return (c - 'a') as i32 + 10
+    }
+    if c >= 'A' && c <= 'F' {
+        return (c - 'A') as i32 + 10
+    }
+    return -1
+}
+
+fn json_put_utf8(out: *list[char], cp: i64) {
+    if cp < 0x80 {
+        (*out).push(cp as char)
+    } else if cp < 0x800 {
+        (*out).push((0xC0 | (cp >> 6)) as char)
+        (*out).push((0x80 | (cp & 0x3F)) as char)
+    } else if cp < 0x10000 {
+        (*out).push((0xE0 | (cp >> 12)) as char)
+        (*out).push((0x80 | ((cp >> 6) & 0x3F)) as char)
+        (*out).push((0x80 | (cp & 0x3F)) as char)
+    } else {
+        (*out).push((0xF0 | (cp >> 18)) as char)
+        (*out).push((0x80 | ((cp >> 12) & 0x3F)) as char)
+        (*out).push((0x80 | ((cp >> 6) & 0x3F)) as char)
+        (*out).push((0x80 | (cp & 0x3F)) as char)
+    }
+}
+
+impl JsonParser {
+    // Record the first error (with line/column) and return a placeholder.
+    fn fail(self, msg: str) -> JsonValue {
+        if self.err.len == 0 {
+            var line = 1
+            var col = 1
+            for i in 0..self.pos {
+                if i >= self.src.len {
+                    break
+                }
+                if self.src[i] == '\n' {
+                    line += 1
+                    col = 1
+                } else {
+                    col += 1
+                }
+            }
+            self.err = "{msg} at line {line}, column {col}"
+        }
+        return json_null()
+    }
+
+    fn peek(self) -> char {
+        if self.pos < self.src.len {
+            return self.src[self.pos]
+        }
+        return '\0'
+    }
+
+    fn skip_ws(self) {
+        while self.pos < self.src.len {
+            let c = self.src[self.pos]
+            if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+                return
+            }
+            self.pos += 1
+        }
+    }
+
+    fn literal(self, word: str, v: JsonValue) -> JsonValue {
+        if self.src[self.pos..].starts_with(word) {
+            self.pos += word.len
+            return v
+        }
+        return self.fail("invalid literal")
+    }
+
+    fn value(self) -> JsonValue {
+        self.skip_ws()
+        if self.pos >= self.src.len {
+            return self.fail("unexpected end of input")
+        }
+        let c = self.peek()
+        match c {
+            '{' => return self.object()
+            '[' => return self.array()
+            '"' => {
+                let s = self.string()
+                if self.err.len > 0 {
+                    return json_null()  // s is not owned on failure
+                }
+                return JsonValue { kind: JsonKind.String, text: s }
+            }
+            't' => return self.literal("true", json_bool(true))
+            'f' => return self.literal("false", json_bool(false))
+            'n' => return self.literal("null", json_null())
+            _ => {
+                if c == '-' || json_is_digit(c) {
+                    return self.number()
+                }
+                let msg = "unexpected character '{c}'"
+                defer free(msg)
+                return self.fail(msg)
+            }
+        }
+    }
+
+    fn number(self) -> JsonValue {
+        let start = self.pos
+        if self.peek() == '-' {
+            self.pos += 1
+        }
+        if self.peek() == '0' {
+            self.pos += 1
+        } else if json_is_digit(self.peek()) {
+            while json_is_digit(self.peek()) {
+                self.pos += 1
+            }
+        } else {
+            return self.fail("invalid number")
+        }
+        if self.peek() == '.' {
+            self.pos += 1
+            if !json_is_digit(self.peek()) {
+                return self.fail("expected digits after '.'")
+            }
+            while json_is_digit(self.peek()) {
+                self.pos += 1
+            }
+        }
+        if self.peek() == 'e' || self.peek() == 'E' {
+            self.pos += 1
+            if self.peek() == '+' || self.peek() == '-' {
+                self.pos += 1
+            }
+            if !json_is_digit(self.peek()) {
+                return self.fail("expected digits in exponent")
+            }
+            while json_is_digit(self.peek()) {
+                self.pos += 1
+            }
+        }
+        return json_num(parse_float(self.src[start..self.pos]))
+    }
+
+    fn hex4(self) -> i64 {
+        if self.pos + 4 > self.src.len {
+            self.fail("truncated \\u escape")
+            return -1
+        }
+        var v: i64 = 0
+        for i in 0..4 {
+            let h = json_hex_val(self.src[self.pos + i])
+            if h < 0 {
+                self.fail("invalid hex digit in \\u escape")
+                return -1
+            }
+            v = v * 16 + h
+        }
+        self.pos += 4
+        return v
+    }
+
+    // Parses a string starting at '"'. Returns an owned str; on failure sets err
+    // and returns a static "" that must NOT be freed.
+    fn string(self) -> str {
+        self.pos += 1  // opening quote
+        var out: list[char]
+        while true {
+            if self.pos >= self.src.len {
+                self.fail("unterminated string")
+                break
+            }
+            let c = self.src[self.pos]
+            self.pos += 1
+            if c == '"' {
+                let chars: []char = out
+                return chars as str
+            }
+            if (c as i32) >= 0 && (c as i32) < 0x20 {
+                self.pos -= 1
+                self.fail("control character in string")
+                break
+            }
+            if c != '\\' {
+                out.push(c)
+                continue
+            }
+            let e = self.peek()
+            self.pos += 1
+            match e {
+                '"' => out.push('"')
+                '\\' => out.push('\\')
+                '/' => out.push('/')
+                'b' => out.push('\x08')
+                'f' => out.push('\x0c')
+                'n' => out.push('\n')
+                'r' => out.push('\r')
+                't' => out.push('\t')
+                'u' => {
+                    var cp = self.hex4()
+                    if cp < 0 {
+                        break
+                    }
+                    if cp >= 0xD800 && cp <= 0xDBFF {
+                        // surrogate pair: must be followed by \uDC00..\uDFFF
+                        if self.peek() != '\\' || self.pos + 1 >= self.src.len || self.src[self.pos + 1] != 'u' {
+                            self.fail("unpaired surrogate in \\u escape")
+                            break
+                        }
+                        self.pos += 2
+                        let lo = self.hex4()
+                        if lo < 0xDC00 || lo > 0xDFFF {
+                            self.fail("invalid low surrogate in \\u escape")
+                            break
+                        }
+                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)
+                    } else if cp >= 0xDC00 && cp <= 0xDFFF {
+                        self.fail("unpaired surrogate in \\u escape")
+                        break
+                    }
+                    json_put_utf8(&out, cp)
+                }
+                _ => {
+                    self.pos -= 1
+                    let msg = "invalid escape '\\{e}'"
+                    self.fail(msg)
+                    free(msg)
+                    break
+                }
+            }
+        }
+        free(out)
+        return ""
+    }
+
+    fn array(self) -> JsonValue {
+        self.pos += 1  // '['
+        self.depth += 1
+        if self.depth > JSON_MAX_DEPTH {
+            return self.fail("nesting too deep")
+        }
+        var arr = json_array()
+        self.skip_ws()
+        if self.peek() == ']' {
+            self.pos += 1
+            self.depth -= 1
+            return arr
+        }
+        while true {
+            let v = self.value()
+            if self.err.len > 0 {
+                json_free(v)
+                break
+            }
+            arr.items.push(v)
+            self.skip_ws()
+            let c = self.peek()
+            self.pos += 1
+            if c == ']' {
+                self.depth -= 1
+                return arr
+            }
+            if c != ',' {
+                self.pos -= 1
+                self.fail("expected ',' or ']' in array")
+                break
+            }
+        }
+        json_free(arr)
+        return json_null()
+    }
+
+    fn object(self) -> JsonValue {
+        self.pos += 1  // '{'
+        self.depth += 1
+        if self.depth > JSON_MAX_DEPTH {
+            return self.fail("nesting too deep")
+        }
+        var obj = json_object()
+        self.skip_ws()
+        if self.peek() == '}' {
+            self.pos += 1
+            self.depth -= 1
+            return obj
+        }
+        while true {
+            self.skip_ws()
+            if self.peek() != '"' {
+                self.fail("expected a string key in object")
+                break
+            }
+            let key = self.string()
+            if self.err.len > 0 {
+                break
+            }
+            self.skip_ws()
+            if self.peek() != ':' {
+                free(key)
+                self.fail("expected ':' after object key")
+                break
+            }
+            self.pos += 1
+            let v = self.value()
+            if self.err.len > 0 {
+                free(key)
+                json_free(v)
+                break
+            }
+            obj.keys.push(key)
+            obj.items.push(v)
+            self.skip_ws()
+            let c = self.peek()
+            self.pos += 1
+            if c == '}' {
+                self.depth -= 1
+                return obj
+            }
+            if c != ',' {
+                self.pos -= 1
+                self.fail("expected ',' or '}}' in object")
+                break
+            }
+        }
+        json_free(obj)
+        return json_null()
+    }
+}
+
+// ------------------------------------------------------------------ serialization
+
+struct JsonWriter {
+    buf: list[char]
+    indent: i64
+}
+
+impl JsonWriter {
+    fn put(self, s: str) {
+        for c in s {
+            self.buf.push(c)
+        }
+    }
+
+    fn newline(self, level: i64) {
+        if self.indent > 0 {
+            self.buf.push('\n')
+            for _ in 0..level * self.indent {
+                self.buf.push(' ')
+            }
+        }
+    }
+
+    fn string(self, s: str) {
+        self.buf.push('"')
+        for c in s {
+            match c {
+                '"' => self.put("\\\"")
+                '\\' => self.put("\\\\")
+                '\n' => self.put("\\n")
+                '\r' => self.put("\\r")
+                '\t' => self.put("\\t")
+                _ => {
+                    let code = c as i32
+                    if code >= 0 && code < 0x20 {
+                        let esc = "\\u{code:04x}"
+                        self.put(esc)
+                        free(esc)
+                    } else {
+                        self.buf.push(c)
+                    }
+                }
+            }
+        }
+        self.buf.push('"')
+    }
+
+    fn number(self, n: f64) {
+        if n != n || n - n != 0.0 {
+            self.put("null")  // NaN and infinities are not valid JSON
+            return
+        }
+        var text: str
+        if n > -9007199254740992.0 && n < 9007199254740992.0 && n == (n as i64) as f64 {
+            text = "{n as i64}"
+        } else {
+            text = "{n}"
+        }
+        self.put(text)
+        free(text)
+    }
+
+    fn value(self, v: JsonValue, level: i64) {
+        match v.kind {
+            JsonKind.Bool => {
+                if v.boolean {
+                    self.put("true")
+                } else {
+                    self.put("false")
+                }
+            }
+            JsonKind.Number => self.number(v.number)
+            JsonKind.String => self.string(v.text)
+            JsonKind.Array => {
+                self.buf.push('[')
+                for i, item in v.items {
+                    if i > 0 {
+                        self.buf.push(',')
+                    }
+                    self.newline(level + 1)
+                    self.value(item, level + 1)
+                }
+                if v.items.len > 0 {
+                    self.newline(level)
+                }
+                self.buf.push(']')
+            }
+            JsonKind.Object => {
+                self.buf.push('{')
+                for i, k in v.keys {
+                    if i > 0 {
+                        self.buf.push(',')
+                    }
+                    self.newline(level + 1)
+                    self.string(k)
+                    self.buf.push(':')
+                    if self.indent > 0 {
+                        self.buf.push(' ')
+                    }
+                    self.value(v.items[i], level + 1)
+                }
+                if v.keys.len > 0 {
+                    self.newline(level)
+                }
+                self.buf.push('}')
+            }
+            _ => self.put("null")
+        }
+    }
+
+    fn finish(self) -> str {
+        let chars: []char = self.buf
+        return chars as str
+    }
+}
+
+// Compact JSON text. The result is heap-allocated: free() it.
+fn json_stringify(v: JsonValue) -> str {
+    var w: JsonWriter
+    w.value(v, 0)
+    return w.finish()
+}
+
+// Indented JSON text (indent = spaces per level). The result is heap-allocated: free() it.
+fn json_pretty(v: JsonValue, indent: i64) -> str {
+    var w = JsonWriter { indent: indent }
+    w.value(v, 0)
+    return w.finish()
+}

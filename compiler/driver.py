@@ -200,7 +200,7 @@ def main(argv=None):
     src = files[0]
     try:
         if cmd in ("check", "lint"):
-            ck = check(load_program(src))
+            ck = check(load_program(src), lib_mode=True)  # modules without main() are fine here
             if cmd == "lint":
                 for w in sorted(ck.warnings, key=lambda w: (w.file or "", w.line, w.col)):
                     print(w.format().replace(": error: ", ": warning: "), file=sys.stderr)

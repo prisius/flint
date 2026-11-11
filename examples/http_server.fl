@@ -1,4 +1,4 @@
-// A small HTTP/1.1 server using std/net.
+// A small HTTP/1.1 server using std/net and std/json.
 //
 //   ./flint run examples/http_server.fl            (port 8080)
 //   ./flint run examples/http_server.fl -- 3000    (custom port)
@@ -6,23 +6,30 @@
 // Then open http://localhost:8080 or try:
 //   curl localhost:8080/hello?name=Ada
 //   curl localhost:8080/stats
+//   curl -X POST localhost:8080/api/greet -d '{"name": "Ada", "times": 2}'
 import "std/net"
+import "std/json"
+
+const MAX_REQUEST = 65536
 
 struct Request {
     method: str
     path: str   // without the query string
     query: str  // the part after '?', or ""
+    body: str   // request body ("" if none)
 }
 
 struct Response {
     status: i32
     content_type: str
     body: str
+    owned: bool  // body is heap-allocated and must be freed after sending
 }
 
 struct Server {
     requests: i64
     not_found: i64
+    greeted: i64
 }
 
 fn reason(status: i32) -> str {
@@ -31,11 +38,71 @@ fn reason(status: i32) -> str {
         400 => return "Bad Request"
         404 => return "Not Found"
         405 => return "Method Not Allowed"
+        413 => return "Payload Too Large"
         _ => return "Error"
     }
 }
 
-// "GET /hello?name=Ada HTTP/1.1\r\n..." -> Request. Returns false if malformed.
+fn lower(c: char) -> char {
+    if c >= 'A' && c <= 'Z' {
+        return c + 32
+    }
+    return c
+}
+
+// Case-insensitive prefix test (HTTP header names are case-insensitive).
+fn starts_with_ci(s: str, prefix: str) -> bool {
+    if s.len < prefix.len {
+        return false
+    }
+    for i, c in prefix {
+        if lower(s[i]) != lower(c) {
+            return false
+        }
+    }
+    return true
+}
+
+// Content-Length from the header block, or 0.
+fn content_length(headers: str) -> i64 {
+    var lines = headers.split("\r\n")
+    defer free(lines)
+    for line in lines {
+        if starts_with_ci(line, "content-length:") {
+            return parse_int(line[15..])
+        }
+    }
+    return 0
+}
+
+// Read until the headers and the whole body (per Content-Length) have arrived.
+// Returns the raw request as a view into buf, or "" if the client went away.
+fn read_request(conn: TcpConn, buf: []char, too_big: *bool) -> str {
+    var got: i64 = 0
+    while got < buf.len {
+        let chunk = conn.read(buf[got..])
+        if chunk.len == 0 {
+            return ""
+        }
+        got += chunk.len
+        let so_far = buf[..got] as str
+        let head_end = so_far.find("\r\n\r\n")
+        if head_end >= 0 {
+            let total = head_end + 4 + content_length(so_far[..head_end])
+            if total > buf.len {
+                *too_big = true
+                return so_far
+            }
+            if got >= total {
+                return buf[..total] as str
+            }
+        }
+    }
+    *too_big = true
+    return buf[..got] as str
+}
+
+// "GET /hello?name=Ada HTTP/1.1\r\n...\r\n\r\nbody" -> Request. Returns false if malformed.
 fn parse_request(raw: str, req: *Request) -> bool {
     let end = raw.find("\r\n")
     if end < 0 {
@@ -55,6 +122,11 @@ fn parse_request(raw: str, req: *Request) -> bool {
     } else {
         req.path = target
         req.query = ""
+    }
+    let head_end = raw.find("\r\n\r\n")
+    req.body = ""
+    if head_end >= 0 {
+        req.body = raw[head_end + 4..]
     }
     return true
 }
@@ -86,14 +158,45 @@ fn is_safe_name(s: str) -> bool {
     return true
 }
 
-const INDEX_HTML = "<!doctype html><html><head><title>Flint</title></head><body><h1>Hello from Flint!</h1><ul><li><a href=\"/hello?name=Ada\">/hello?name=Ada</a></li><li><a href=\"/stats\">/stats</a></li></ul></body></html>"
+fn text(status: i32, body: str) -> Response {
+    return Response { status: status, content_type: "text/plain", body: body }
+}
+
+// Serializes and frees a JSON value into a response.
+fn json_response(status: i32, v: JsonValue) -> Response {
+    let body = json_stringify(v)
+    json_free(v)
+    return Response { status: status, content_type: "application/json", body: body, owned: true }
+}
+
+fn json_error(status: i32, msg: str) -> Response {
+    var o = json_object()
+    o.set("error", json_str(msg))
+    return json_response(status, o)
+}
+
+const INDEX_HTML = `<!doctype html>
+<html><head><title>Flint</title></head><body>
+<h1>Hello from Flint!</h1>
+<ul>
+  <li><a href="/hello?name=Ada">/hello?name=Ada</a></li>
+  <li><a href="/stats">/stats</a></li>
+  <li><code>curl -X POST localhost:8080/api/greet -d '{"name": "Ada", "times": 2}'</code></li>
+</ul>
+</body></html>
+`
 
 impl Server {
-    // Bodies built with "{...}" are heap strings; the caller frees resp.body when owned is true.
-    fn route(self, req: Request, owned: *bool) -> Response {
+    fn route(self, req: Request) -> Response {
         self.requests += 1
+        if req.path == "/api/greet" {
+            if req.method != "POST" {
+                return json_error(405, "use POST with a JSON body")
+            }
+            return self.greet(req.body)
+        }
         if req.method != "GET" {
-            return Response { status: 405, content_type: "text/plain", body: "only GET is supported\n" }
+            return text(405, "only GET is supported here\n")
         }
         match req.path {
             "/" => return Response { status: 200, content_type: "text/html", body: INDEX_HTML }
@@ -102,50 +205,88 @@ impl Server {
                 if !is_safe_name(name) {
                     name = "stranger"
                 }
-                *owned = true
-                return Response { status: 200, content_type: "text/html", body: "<h1>Hello, {name}!</h1>\n" }
+                return Response { status: 200, content_type: "text/html", body: "<h1>Hello, {name}!</h1>\n", owned: true }
             }
             "/stats" => {
-                *owned = true
-                return Response {
-                    status: 200,
-                    content_type: "application/json",
-                    body: "{{\"requests\": {self.requests}, \"not_found\": {self.not_found}}}\n",
-                }
+                var o = json_object()
+                o.set("requests", json_int(self.requests))
+                o.set("not_found", json_int(self.not_found))
+                o.set("greeted", json_int(self.greeted))
+                return json_response(200, o)
             }
             _ => {
                 self.not_found += 1
-                return Response { status: 404, content_type: "text/plain", body: "not found\n" }
+                return text(404, "not found\n")
             }
         }
     }
+
+    // POST /api/greet  {"name": "Ada", "times": 2}
+    //   -> {"greetings": ["Hello, Ada!", "Hello, Ada!"], "count": 2}
+    fn greet(self, body: str) -> Response {
+        let input = json_parse(body)
+        defer json_free(input)
+        if !input.ok() {
+            let msg = "invalid JSON: {input.error()}"
+            defer free(msg)
+            return json_error(400, msg)
+        }
+        let name = input.get("name").as_str()
+        if name.len == 0 {
+            return json_error(400, "field \"name\" (a non-empty string) is required")
+        }
+        var times: i64 = 1
+        if input.has("times") {
+            times = input.get("times").as_int()
+        }
+        if times < 1 || times > 10 {
+            return json_error(400, "field \"times\" must be between 1 and 10")
+        }
+        self.greeted += 1
+        var greetings = json_array()
+        for _ in 0..times {
+            let g = "Hello, {name}!"
+            greetings.push(json_str(g))
+            free(g)
+        }
+        var out = json_object()
+        out.set("greetings", greetings)
+        out.set("count", json_int(times))
+        return json_response(200, out)
+    }
 }
 
-fn handle(server: *Server, conn: TcpConn) {
-    var buf: [8192]char
-    let raw = conn.read(buf)
-    if raw.len == 0 {
-        return
-    }
-    var req: Request
-    var owned = false
-    var resp: Response
-    if parse_request(raw, &req) {
-        resp = server.route(req, &owned)
-    } else {
-        resp = Response { status: 400, content_type: "text/plain", body: "bad request\n" }
-    }
-    defer {
-        if owned {
-            free(resp.body)
-        }
-    }
-
+fn send(conn: TcpConn, resp: Response) {
     let head = "HTTP/1.1 {resp.status} {reason(resp.status)}\r\nContent-Type: {resp.content_type}; charset=utf-8\r\nContent-Length: {resp.body.len}\r\nConnection: close\r\n\r\n"
     defer free(head)
     if conn.write(head) {
         conn.write(resp.body)
     }
+}
+
+fn handle(server: *Server, conn: TcpConn) {
+    let buf = make([]char, MAX_REQUEST)
+    defer free(buf)
+    var too_big = false
+    let raw = read_request(conn, buf, &too_big)
+    if raw.len == 0 {
+        return
+    }
+    var req: Request
+    var resp: Response
+    if too_big {
+        resp = text(413, "request too large\n")
+    } else if parse_request(raw, &req) {
+        resp = server.route(req)
+    } else {
+        resp = text(400, "bad request\n")
+    }
+    defer {
+        if resp.owned {
+            free(resp.body)
+        }
+    }
+    send(conn, resp)
     eprintln("{req.method:-4} {req.path:-12} -> {resp.status}")
 }
 

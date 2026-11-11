@@ -233,6 +233,16 @@ let parts = "a,b,c".split(",")                         // list[str]
 
 Use `{{` and `}}` for literal braces.
 
+**Raw strings** use backticks. They have no escapes and no interpolation, and they
+may span several lines. They are ideal for JSON, HTML, regexes and paths:
+
+```flint
+let doc = json_parse(`{"name": "Ada", "tags": ["math"]}`)
+const PAGE = `<html>
+  <body>{not interpolated}</body>
+</html>`
+```
+
 Interpolation format specs work like printf, but are checked at compile time:
 
 | spec | meaning | example |
@@ -278,6 +288,7 @@ Standard library modules:
 | `std/math` | `sqrt`, `pow`, `sin`, `cos`, `floor` and the rest of `math.h`; `PI`, `E`, `TAU`; `min_`/`max_`/`clamp_` helpers |
 | `std/rand` | `Rng.new(seed)`, `.next()`, `.range(lo, hi)`, `.float()` (xorshift64*) |
 | `std/net` | TCP: `TcpListener.bind(port)`, `.accept()`; `TcpConn.read(buf) -> str`, `.write(s)`, `.close()` |
+| `std/json` | JSON parse / build / serialize, written in pure Flint (see below) |
 
 A tiny TCP echo server:
 
@@ -296,9 +307,52 @@ fn main() {
 }
 ```
 
-For a complete example (routing, query strings, JSON, status codes, `defer`
-cleanup) see `examples/http_server.fl`: `./flint run examples/http_server.fl`, then
-open http://localhost:8080.
+For a complete example (routing, query strings, a JSON API, request bodies, status
+codes, `defer` cleanup) see `examples/http_server.fl`: run
+`./flint run examples/http_server.fl` and open http://localhost:8080.
+
+#### std/json
+
+```flint
+import "std/json"
+
+let doc = json_parse(`{"name": "Ada", "age": 36, "tags": ["math", "code"]}`)
+defer json_free(doc)
+if !doc.ok() {
+    println("bad JSON: {doc.error()}")   // e.g. "expected ':' after object key at line 3, column 9"
+    return
+}
+let name = doc.get("name").as_str()       // "Ada"
+let age = doc.get("age").as_int()         // 36
+let first = doc.get("tags").at(0).as_str() // "math"
+for tag in doc.get("tags").items { println(tag.as_str()) }
+
+var out = json_object()
+out.set("ok", json_bool(true))
+var list = json_array()
+list.push(json_int(1))
+list.push(json_str("two"))
+out.set("items", list)
+let text = json_stringify(out)            // {"ok":true,"items":[1,"two"]}
+let pretty = json_pretty(out, 2)          // indented with 2 spaces
+free(text)
+free(pretty)
+json_free(out)
+```
+
+| API | Description |
+|---|---|
+| `json_parse(text) -> JsonValue` | Strict RFC 8259 parsing (escapes, `\u` with surrogate pairs, depth limit 512). Check `.ok()`; `.error()` gives the message with line and column. |
+| `.get(key)` `.at(i)` `.has(key)` `.len()` | Access. A missing key or index gives a `null` value, so chains like `a.get("x").get("y")` are safe. |
+| `.as_str()` `.as_int()` `.as_f64()` `.as_bool()` `.is_null()` | Typed reads. A kind mismatch returns `""`, `0` or `false`. |
+| `.kind` | `JsonKind.Null`, `Bool`, `Number`, `String`, `Array`, `Object` or `Error` |
+| `.items` / `.keys` | The underlying lists, for iteration (`for v in x.items`) |
+| `json_null()` `json_bool(b)` `json_int(n)` `json_num(f)` `json_str(s)` `json_array()` `json_object()` | Constructors. `json_str` copies its argument. |
+| `.push(v)` / `.set(key, v)` | Add to an array or object. The parent takes ownership of `v`; `set` replaces an existing key. |
+| `json_stringify(v)` / `json_pretty(v, indent)` | Serialize to a heap `str` (free it). NaN and infinities become `null`. |
+| `json_free(v)` | Free a whole tree. Call it **only on roots**: values from `get`/`at` are views into the tree. |
+
+Numbers are stored as `f64`, so integers are exact up to 2^53.
 
 ---
 
@@ -321,7 +375,7 @@ open http://localhost:8080.
 | `void` | no value (return type only) | `void` |
 
 **Literals:** `42`, `1_000_000`, `0xff`, `0b1010`, `3.14`, `1e9`, `'a'`, `'\n'`,
-`"text\t{expr}"`, `true`, `false`, `null`, `[1, 2, 3]`, `Point { x: 1, y: 2 }`.
+`"text\t{expr}"`, `` `raw {text}` ``, `true`, `false`, `null`, `[1, 2, 3]`, `Point { x: 1, y: 2 }`.
 String escapes are `\n \t \r \0 \\ \" \' \e \xNN`. An integer literal takes whatever
 numeric type its context expects. Without context it is `i64`, and a float literal is `f64`.
 
@@ -431,7 +485,7 @@ which catch use-after-free, leaks and similar bugs.
   and `} else {` as well as `}` with `else` on the next line.
 - Conditions must be `bool`. Write `if n != 0`, not `if n`.
 - An interpolation like `{expr}` may not contain string literals. Put the string in a
-  variable first.
+  variable first. For text that contains many braces (JSON, CSS), use a `` `raw string` ``.
 - A struct literal is not allowed directly inside an `if`, `while`, `for` or `match`
   header. Wrap it in parentheses: `if p == (Point { x: 1, y: 2 })`. (Comparing structs
   with `==` is not supported anyway; compare their fields.)

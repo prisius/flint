@@ -23,7 +23,7 @@ PUNCT = [
     "(", ")", "[", "]", "{", "}", ",", ";", ":", ".",
 ]
 
-ENDS_STATEMENT = {"IDENT", "INT", "FLOAT", "STRING", "CHAR"}
+ENDS_STATEMENT = {"IDENT", "INT", "FLOAT", "STRING", "RAWSTRING", "CHAR"}
 ENDS_STATEMENT_KW = {"true", "false", "null", "return", "break", "continue"}
 ENDS_STATEMENT_PUNCT = {")", "]", "}"}
 
@@ -152,6 +152,21 @@ def lex(src, file="<input>"):
             col += j - i
             i = j
             continue
+        if ch == "`":
+            # raw string: no escapes, no interpolation, may span lines
+            end = src.find("`", i + 1)
+            if end < 0:
+                err("unterminated raw string (missing closing `)")
+            raw = src[i + 1:end]
+            add("RAWSTRING", raw, sl, sc)
+            nl = raw.count("\n")
+            if nl:
+                line += nl
+                col = len(raw) - raw.rfind("\n") + 1
+            else:
+                col += end + 1 - i
+            i = end + 1
+            continue
         if ch == '"':
             j = i + 1
             while j < n and src[j] != '"':
@@ -168,7 +183,9 @@ def lex(src, file="<input>"):
             continue
         if ch == "'":
             j = i + 1
-            if j < n and src[j] == "\\":
+            if src.startswith("\\x", j):
+                j += 4          # '\xNN'
+            elif j < n and src[j] == "\\":
                 j += 2
             else:
                 j += 1

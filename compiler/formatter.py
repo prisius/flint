@@ -6,7 +6,7 @@ it can never change what a program means.
   - a line ending in a binary operator indents the next line one extra level
   - trailing whitespace and trailing ';' are removed
   - runs of blank lines collapse to one; no blank lines at start/end of file
-  - lines inside /* block comments */ are left untouched
+  - lines inside /* block comments */ and multi-line `raw strings` are left untouched
 """
 
 OPEN = "([{"
@@ -14,27 +14,36 @@ CLOSE = ")]}"
 CONT_ENDINGS = ("+", "-", "*", "/", "%", "&", "|", "^", "=", "<", ">", "!", "~", "..")
 
 
-def scan_code(line, in_comment):
-    """Split a line into (code_without_strings_and_comments, still_in_block_comment).
+def scan_code(line, state):
+    """Split a line into (code_without_strings_and_comments, state_at_end_of_line).
 
+    state is None, "comment" (inside /* */) or "raw" (inside a `raw string`).
     String/char contents are replaced by spaces so brackets inside them are ignored.
     """
     out = []
     i, n = 0, len(line)
     while i < n:
-        if in_comment:
-            end = line.find("*/", i)
+        if state is not None:
+            close = "*/" if state == "comment" else "`"
+            end = line.find(close, i)
             if end < 0:
-                return "".join(out), True
-            i = end + 2
-            in_comment = False
+                return "".join(out), state
+            if state == "raw":
+                out.append("`")
+            i = end + len(close)
+            state = None
             continue
         c = line[i]
         if line.startswith("//", i):
             break
         if line.startswith("/*", i):
-            in_comment = True
+            state = "comment"
             i += 2
+            continue
+        if c == "`":
+            out.append("`")
+            state = "raw"
+            i += 1
             continue
         if c in "\"'":
             q = c
@@ -50,23 +59,32 @@ def scan_code(line, in_comment):
             continue
         out.append(c)
         i += 1
-    return "".join(out), in_comment
+    return "".join(out), state
 
 
 def format_source(src):
     lines = src.replace("\r\n", "\n").replace("\t", "    ").split("\n")
     out = []
     stack = []            # indent level of each open bracket
-    in_comment = False
+    state = None          # None | "comment" | "raw" carried across lines
     continuation = False  # previous code line ended with an operator
     blank_run = 0
 
     for raw in lines:
         stripped = raw.strip()
-        if in_comment:
-            code, in_comment = scan_code(raw, True)
-            out.append(raw.rstrip())
+        if state is not None:
+            # inside a block comment or raw string: keep the line exactly (raw strings are data)
+            code, new_state = scan_code(raw, state)
+            out.append(raw if state == "raw" else raw.rstrip())
             blank_run = 0
+            if new_state is None:
+                state = None
+                # the rest of the line after the closing delimiter may open brackets
+                for ch in code:
+                    if ch in OPEN:
+                        stack.append((stack[-1] if stack else 0) + 1)
+                    elif ch in CLOSE and stack:
+                        stack.pop()
             continue
         if not stripped:
             blank_run += 1
@@ -75,7 +93,7 @@ def format_source(src):
             continue
         blank_run = 0
 
-        code, still_comment = scan_code(stripped, False)
+        code, still_state = scan_code(stripped, None)
         # leading closers dedent this line
         k = 0
         lead = code.lstrip()
@@ -94,7 +112,7 @@ def format_source(src):
             text = (text[:cpos] + text[cpos + 1:]).rstrip()
             if not text:
                 continue
-            code, still_comment = scan_code(text, False)
+            code, still_state = scan_code(text, None)
 
         out.append("    " * level + text)
 
@@ -105,7 +123,7 @@ def format_source(src):
                 stack.append(new_level)
             elif c in CLOSE and stack:
                 stack.pop()
-        in_comment = still_comment
+        state = still_state
         tail = code.rstrip()
         continuation = bool(tail) and tail.endswith(CONT_ENDINGS) and not tail.endswith(("->",)) or tail.endswith("=>")
 

@@ -1,0 +1,45 @@
+Ada 36 true
+2 code true
+1.5 -2 true
+true false true 0
+math code 
+name=String age=Number admin=Bool tags=Array boss=Null pos=Object 
+empty      ok    {}
+arr        ok    []
+nested     ok    [[1,[2,[3]]],{"a":{"b":{}}}]
+numbers    ok    [0,0,1000,0.0025,-12.75,123456789012,0.1]
+escapes    ok    "q\" b\\ s/ n\n t\t"
+unicode    ok    "café € 😀"
+raw utf8   ok    "naïve ✓"
+estring    ok    ""
+literals   ok    [true,false,null]
+trailing   error unexpected character ']' at line 1, column 7
+missing    error expected ':' after object key at line 1, column 6
+garbage    error unexpected data after the JSON value at line 1, column 5
+badlit     error invalid literal at line 1, column 1
+unterm     error unterminated string at line 1, column 5
+badnum     error expected ',' or ']' in array at line 1, column 3
+badnum2    error expected digits after '.' at line 1, column 3
+badesc     error invalid escape '\q' at line 1, column 3
+surrogate  error unpaired surrogate in \u escape at line 1, column 8
+ctrl       error control character in string at line 1, column 3
+key        error expected a string key in object at line 1, column 2
+empty      error unexpected end of input at line 1, column 1
+multiline  error unexpected character '?' at line 3, column 8
+deep       error nesting too deep at line 1, column 514
+{"name":"Grace \"Amazing\" Hopper\n","year":1992,"pi":3.14159,"langs":["COBOL","FLOW-MATIC",null],"empty":[],"bell":"\u0007","big":1e+300,"nan":null}
+{
+  "name": "Grace \"Amazing\" Hopper\n",
+  "year": 1992,
+  "pi": 3.14159,
+  "langs": [
+    "COBOL",
+    "FLOW-MATIC",
+    null
+  ],
+  "empty": [],
+  "bell": "\u0007",
+  "big": 1e+300,
+  "nan": null
+}
+true 23 FLOW-MATIC
